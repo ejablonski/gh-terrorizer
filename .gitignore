@@ -1,0 +1,22 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries and profiles
+*.test
+*.out
+
+# Local cache & logs
+.cache/
+*.log
+
+# Editor & OS artifacts
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
