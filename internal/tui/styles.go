@@ -96,6 +96,15 @@ type Styles struct {
 	ToastError    lipgloss.Style
 	ToastSuccess  lipgloss.Style
 	EmptyNotice   lipgloss.Style
+
+	TopBarBrand      lipgloss.Style
+	TimerBadgeActive lipgloss.Style
+	TimerBadgeIdle   lipgloss.Style
+	ModalFrame       lipgloss.Style
+	BadgeStateOpen   lipgloss.Style
+	BadgeStateClosed lipgloss.Style
+	ViewportFooter   lipgloss.Style
+	ScrollIndicator  lipgloss.Style
 }
 
 // NewStyles initializes styles with the selected palette and icon preference.
@@ -244,6 +253,40 @@ func NewStyles(variant string, icons bool) Styles {
 			Foreground(p.Comment).
 			Italic(true).
 			Padding(2, 4),
+
+		TopBarBrand: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(p.Cyan).
+			Background(p.BgDark).
+			Padding(0, 1),
+
+		TimerBadgeActive: lipgloss.NewStyle().
+			Foreground(p.Orange).
+			Bold(true),
+
+		TimerBadgeIdle: lipgloss.NewStyle().
+			Foreground(p.Comment),
+
+		ModalFrame: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(p.Blue).
+			Padding(0, 1),
+
+		BadgeStateOpen: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(p.Green),
+
+		BadgeStateClosed: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(p.Purple),
+
+		ViewportFooter: lipgloss.NewStyle().
+			Foreground(p.Comment).
+			Align(lipgloss.Right),
+
+		ScrollIndicator: lipgloss.NewStyle().
+			Foreground(p.Comment).
+			Italic(true),
 	}
 
 	return s

@@ -3,7 +3,7 @@
 [![Go Version](https://img.shields.io/badge/go-1.22%2B-blue)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-`gh-terrorizer` is a keyboard-driven terminal user interface (TUI) workstation for managing **GitHub Projects v2** Kanban boards and synchronizing task execution time directly into project custom float fields via **Timewarrior** (`timew`).
+`gh-terrorizer` is a keyboard-driven 3-tier terminal user interface (TUI) workstation for managing **GitHub Projects v2** Kanban boards and synchronizing task execution time directly into project custom float fields via **Timewarrior** (`timew`).
 
 Built with Go, [Charm's Bubble Tea](https://github.com/charmbracelet/bubbletea), and [Lip Gloss](https://github.com/charmbracelet/lipgloss), it executes GitHub GraphQL queries and mutations in-process via [`github.com/cli/go-gh/v2`](https://github.com/cli/go-gh), transparently reusing existing GitHub CLI credentials, hosts, and keychain tokens.
 
@@ -11,7 +11,50 @@ Built with Go, [Charm's Bubble Tea](https://github.com/charmbracelet/bubbletea),
 
 ## System Overview
 
-`gh-terrorizer` bridges terminal-native developer workflows with cloud-hosted GitHub Projects v2 boards. The application runs in the terminal alternate screen buffer, providing responsive multi-column Kanban card visualization, Vim motions, optimistic card moves, external editor suspension for markdown bodies, and seamless local time tracking synchronized upstream.
+`gh-terrorizer` bridges terminal-native developer workflows with cloud-hosted GitHub Projects v2 boards. The application runs in the terminal alternate screen buffer, structuring the terminal display into a Lazygit-inspired 3-tier workstation:
+1. **Top Bar**: Displays repository name, project title, live in-memory Timewarrior tracking status (`tag` and elapsed time), and on-demand synchronization timestamps.
+2. **Main Application Area**: Dynamically renders either the responsive multi-column Kanban board or a centered, scrollable Issue Inspector Modal with word-wrapped descriptions and metadata badges.
+3. **Bottom Bar**: Context-sensitive Vim action hints that adapt between board navigation and modal inspection, alongside transient notification toasts.
+
+### Workstation Interface
+
+```text
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ 󰄶 gh-terrorizer │ ejablonski/gh-terrorizer #1 │ 󱎫 gh-42 [01:23:45] │ 󰄬 Synced (r: sync) │  <- Top Bar
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ ╭─ Todo (3) ────╮ ╭─ In Progress (2) ─╮ ╭─ Done (5) ─────────────────────────────────╮ │
+│ │  #10 Task 1  │ │ ┏━━━━━━━━━━━━━━━┓ │ │  #05 Setup Repo                            │ │  <- Main Area
+│ │  󱎫 1.00h      │ │ ┃  #42 Task 3  ┃ │ │  󱎫 0.50h                                    │ │     (Kanban View)
+│ │ ╭───────────╮ │ │ ┃  󱎫 0.50h      ┃ │ ╰────────────────────────────────────────────╯ │
+│ │ │  #20 Task│ │ │ ┗━━━━━━━━━━━━━━━┛ │                                                │
+│ │ ╰───────────╯ │ ╰───────────────────╯                                                │
+│ ╰───────────────╯                                                                      │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ h/l: cols • j/k: cards • m: move • H/L: shift • t: timer • r: sync • Enter/i: inspect • q: quit │  <- Bottom Bar
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+When inspecting an issue (`Enter` or `i`), the centered Issue Inspector Modal replaces the Kanban board in the main tier:
+
+```text
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ 󰄶 gh-terrorizer │ ejablonski/gh-terrorizer #1 │ 󱎫 gh-42 [01:23:45] │ 󰄬 Synced (r: sync) │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│                   ╭─ Issue #42: Authentication Token Refresh ────────╮                 │
+│                   │ State: OPEN  │ Milestone: v1.0 │ Tracked: 2.50h  │                 │
+│                   ├──────────────────────────────────────────────────┤                 │
+│                   │ Description:                                     │                 │
+│                   │ When the access token expires, the client fails  │                 │
+│                   │ to refresh credentials against GitHub OAuth API. │                 │
+│                   │ Steps to reproduce:                              │                 │
+│                   │  1. Invalidate cached token.                     │                 │
+│                   │  2. Run query command.                           │                 │
+│                   │                                            [28%] │                 │
+│                   ╰──────────────────────────────────────────────────╯                 │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ j/k: scroll • d/u: half page • g/G: top/bottom • e: edit in $EDITOR • Esc/q: back      │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
 
 ### Architecture Overview
 
@@ -22,21 +65,21 @@ gh-terrorizer/
     ├── config/                 # TOML configuration parser with defaults & git remote inference
     ├── github/                 # In-process GraphQL client using go-gh/v2
     ├── timew/                  # Subprocess runner for timew start/stop & JSON interval parsing
-    └── tui/                    # Bubble Tea model: Kanban board, responsive viewports, keybindings
+    └── tui/                    # Bubble Tea workstation model, render engine, viewports, modal
 ```
 
 ---
 
 ## Local Interface & Invariants
 
-### Direct Symbols (`main.go`)
+### Direct Symbols ([`main.go`](file:///home/ejablonski/dev/gh-terrorizer/main.go))
 - `version`: Version string constant (`"0.1.0"`).
-- `main()`: Root application entry point. Parses CLI flags (`--owner`, `--repo`, `--project`, `--config`, `--version`), executes pre-flight environment checks, initializes adapters, and launches Bubble Tea with `tea.WithAltScreen()`.
+- [`main()`](file:///home/ejablonski/dev/gh-terrorizer/main.go): Root application entry point. Parses CLI flags (`--owner`, `--repo`, `--project`, `--config`, `--version`), executes pre-flight environment checks, initializes adapters, and launches Bubble Tea with `tea.WithAltScreen()`.
 
 ### Local Invariants & Pre-flights
-- Required parameters `owner` and `project` must be supplied via CLI flags, `config.toml`, or Git remote detection; otherwise `main()` exits with status 1.
+- Required parameters `owner` and `project` must be supplied via CLI flags, `config.toml`, or Git remote detection; otherwise `main()` exits with status $1$.
 - If `timew` is absent from `$PATH`, time tracking is gracefully disabled with a notice instead of exiting.
-- If GitHub CLI lacks the `project` OAuth scope, `main()` prints remediation guidance (`gh auth refresh -s project`) and terminates with status 1.
+- If GitHub CLI lacks the `project` OAuth scope, `main()` prints remediation guidance (`gh auth refresh -s project`) and terminates with status $1$.
 
 ### Local Side Effects
 - Spawns pre-flight subprocesses (`exec.LookPath("timew")`, `gh auth status`).
@@ -46,11 +89,11 @@ gh-terrorizer/
 
 ## Subdirectories & System Boundaries
 
-- [internal](./internal/README.md): Core decoupled subsystem packages.
-  - [config](./internal/config/README.md): TOML configuration parsing, path expansion, and git remote detection.
-  - [github](./internal/github/README.md): In-process GraphQL client for GitHub Projects v2 boards, cards, and custom hour fields.
-  - [timew](./internal/timew/README.md): Subprocess controller for Timewarrior tracking, interval export, and decimal hour math.
-  - [tui](./internal/tui/README.md): Bubble Tea Kanban TUI model, Vim keybindings, Lip Gloss styles, and adaptive sliding viewports.
+- [`internal`](file:///home/ejablonski/dev/gh-terrorizer/internal/README.md): Core decoupled subsystem packages.
+  - [`config`](file:///home/ejablonski/dev/gh-terrorizer/internal/config/README.md): TOML configuration parsing, path expansion, and git remote detection.
+  - [`github`](file:///home/ejablonski/dev/gh-terrorizer/internal/github/README.md): In-process GraphQL client for GitHub Projects v2 boards, cards, and custom hour fields.
+  - [`timew`](file:///home/ejablonski/dev/gh-terrorizer/internal/timew/README.md): Subprocess controller for Timewarrior tracking, interval export, and decimal hour math.
+  - [`tui`](file:///home/ejablonski/dev/gh-terrorizer/internal/tui/README.md): Bubble Tea workstation TUI model, pure layout renderer, Tokyo Night styles, sliding viewports, and Issue Inspector Modal.
 
 ---
 
@@ -59,7 +102,7 @@ gh-terrorizer/
 - **Upstream Authoritative State**: GitHub Projects v2 is the authoritative source of truth. No local SQLite or cache database is maintained; all state is fetched on boot and refreshed on demand (`r`).
 - **Optimistic Mutation Rollback**: Card movement across Kanban status columns updates local UI state optimistically and rolls back immediately if the asynchronous GraphQL mutation fails.
 - **Mutually Exclusive Time Tracking**: At most one issue card can be actively tracked at any time. Starting tracking on a card automatically stops any running interval and synchronizes accumulated decimal hours to the custom field on GitHub.
-- **Strict Viewport Containment**: Total rendered TUI output height is dynamically budgeted and clamped to terminal height $H$, ensuring headers, column headers, and status bars never scroll off screen.
+- **Strict Viewport Containment**: Total rendered TUI output height is dynamically budgeted and clamped to terminal height $H$ by setting $$h_{\text{main}} = H - \text{lipgloss.Height}(\text{topBar}) - \text{lipgloss.Height}(\text{bottomBar})$$, ensuring headers, column headers, modals, and status bars never scroll off screen.
 
 ---
 
@@ -73,7 +116,10 @@ gh-terrorizer/
 
 ## Features
 
-* **Terminal Kanban Workstation**: Inspect project columns, view issue and PR cards, and transition cards across workflow columns.
+* **3-Tier Terminal Workstation**: Structured Lazygit-style workspace separating persistent session awareness, adaptable main work area, and dynamic action strips.
+* **Centered Issue Inspector Modal**: Press `Enter` or `i` over any card to view detailed state, milestone badges, tracked hours, and full word-wrapped markdown body text in an embedded scrollable viewport.
+* **Ambient Time Tracking & In-Memory Elapsed Timer**: Persistent Top Bar displays the running Timewarrior tag and elapsed tracking duration updated every $1\text{ s}$ without subprocess overhead.
+* **On-Demand Board Synchronization**: Press `r` at any time to execute an asynchronous board refresh without resetting cursor coordinates or blocking the interface.
 * **In-Process GitHub GraphQL API**: Connects directly to GitHub via `go-gh/v2` with HTTP keep-alive pools. Zero subprocess spawning for remote operations.
 * **Automated Timewarrior Integration**:
   * Press `t` to toggle time tracking for any card on the board.
@@ -82,13 +128,13 @@ gh-terrorizer/
     $$\Delta h = \frac{\Delta s}{3600}$$
   * Formatted hours are automatically accumulated into the designated GitHub Projects v2 float custom field (e.g. `1.50h` + `0.50h` = `2.00h`).
 * **Tokyo Night Aesthetics**: Beautiful syntax-aware palette (`storm` default, `night` variant) styled with Lip Gloss.
-* **Vim Motions Throughout**: Navigate columns and cards effortlessly using `h`, `j`, `k`, `l`, `g`, `G`, `H`, `L`, `t`, `e`, `r`.
+* **Vim Motions Throughout**: Navigate columns and cards effortlessly using `h`, `j`, `k`, `l`, `g`, `G`, `H`, `L`, `t`, `e`, `r`, `Enter`, `i`, `Esc`, `q`.
 * **Responsive Multi-Column Kanban & Sliding Viewport**:
   * Automatically renders as many columns side-by-side as fit your terminal width ($K_{\text{vis}} = \min(N, \lfloor W / W_{\min} \rfloor)$).
   * Horizontally scrollable viewport keeps the active column in focus with visual indicators (`◀`, `▶`).
-  * Displays 2 to 3 columns side-by-side even on compact 60–80 column terminals, falling back to tabbed single-column mode only on ultra-narrow windows ($W < 50$).
+  * Displays $2$ to $3$ columns side-by-side even on compact $60\text{--}80$ column terminals, falling back to tabbed single-column mode only on ultra-narrow windows ($W < 50$).
 * **Zero Credential Configuration**: Uses the authenticated session from `gh auth login`. No Personal Access Tokens or API keys to manage.
-* **External Editor Support**: Press `e` on any card to suspend Bubble Tea and edit the markdown body directly in your `$EDITOR` or `$VISUAL`.
+* **External Editor Support**: Press `e` on any card or inside the Inspector Modal to suspend Bubble Tea and edit the markdown body directly in your `$EDITOR` or `$VISUAL`.
 
 ---
 
@@ -108,7 +154,7 @@ gh-terrorizer/
    # macOS (Homebrew)
    brew install timewarrior
    ```
-4. **Nerd Font**: (Optional, recommended for icons such as `󱎫`, ``, ``).
+4. **Nerd Font**: (Optional, recommended for icons such as `󰄶`, `󱎫`, `󰄬`, `󰑮`, ``, ``).
 
 ---
 
@@ -120,10 +166,10 @@ git clone https://github.com/ejablonski/gh-terrorizer.git
 cd gh-terrorizer
 
 # Build binary
-go build -o bin/gh-terrorizer .
+go build -o /tmp/gh-terrorizer .
 
 # Run
-./bin/gh-terrorizer --owner <owner> --project <project_number>
+/tmp/gh-terrorizer --owner <owner> --project <project_number>
 ```
 
 If launched inside a Git repository clone, `gh-terrorizer` automatically inspects `git remote get-url origin` to resolve the default owner and repository.
@@ -154,17 +200,20 @@ show_icons = true                   # Set false to disable Nerd Font symbols
 
 ## Keybindings
 
+### Kanban Board Mode
+
 | Key | Action | Description |
 | :---: | :--- | :--- |
-| `h` / `←` | Move Left | Select adjacent left column |
-| `l` / `→` | Move Right | Select adjacent right column |
+| `h` / `←` | Move Left | Select adjacent left column (or drop card if moving) |
+| `l` / `→` | Move Right | Select adjacent right column (or drop card if moving) |
 | `j` / `↓` | Move Down | Select next card in column |
 | `k` / `↑` | Move Up | Select previous card in column |
 | `g` | Jump Top | Jump to topmost card in column |
 | `G` | Jump Bottom | Jump to bottommost card in column |
-| `H` / `Shift+←` | Move Card Left | Shift focused card to adjacent left column (optimistic update) |
-| `L` / `Shift+→` | Move Card Right | Shift focused card to adjacent right column (optimistic update) |
+| `H` / `Shift+←` | Shift Left | Shift focused card to adjacent left column (optimistic update) |
+| `L` / `Shift+→` | Shift Right | Shift focused card to adjacent right column (optimistic update) |
 | `m` | Move Mode | Enter move mode; press `h`/`l` to drop card, `Esc` to cancel |
+| `Enter` / `i` | Inspect Card | Open Issue Inspector Modal for focused card |
 | `t` | Toggle Timer | Start or stop Timewarrior tracking and sync hours to GitHub |
 | `e` | Edit Body | Suspend TUI and edit card body in `$EDITOR` |
 | `r` | Refresh | Fetch latest project board state from GitHub |
@@ -172,7 +221,22 @@ show_icons = true                   # Set false to disable Nerd Font symbols
 | `Tab` | Next Tab | Cycle forward through columns |
 | `Shift+Tab` | Previous Tab | Cycle backward through columns |
 | `Esc` | Clear / Dismiss | Dismiss error toast or cancel move mode |
-| `q` / `Ctrl+C` | Quit | Exit `gh-terrorizer` |
+| `q` | Quit | Exit `gh-terrorizer` |
+| `Ctrl+C` | Force Quit | Unconditionally terminate application |
+
+### Issue Inspector Modal Mode
+
+| Key | Action | Description |
+| :---: | :--- | :--- |
+| `j` / `↓` | Scroll Down | Scroll issue body down by $1$ line |
+| `k` / `↑` | Scroll Up | Scroll issue body up by $1$ line |
+| `d` / `PgDn` / `Space` | Half Page Down | Scroll viewport down by half page |
+| `u` / `PgUp` | Half Page Up | Scroll viewport up by half page |
+| `g` / `Home` | Top | Jump to top of issue description |
+| `G` / `End` | Bottom | Jump to end of issue description |
+| `e` | Edit Body | Suspend TUI and edit issue description in `$EDITOR` |
+| `Esc` / `q` | Close Modal | Return to Kanban board with card focus preserved |
+| `Ctrl+C` | Force Quit | Unconditionally terminate application |
 
 ---
 
@@ -182,6 +246,13 @@ Run all test suites with race detection:
 
 ```bash
 go test -v -race ./...
+```
+
+Verify package test coverage:
+
+```bash
+go test -coverprofile=/tmp/coverage.out ./internal/tui/...
+go tool cover -func=/tmp/coverage.out
 ```
 
 ---

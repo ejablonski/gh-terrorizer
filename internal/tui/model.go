@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ejablonski/gh-terrorizer/internal/config"
@@ -62,6 +64,14 @@ type EditorFinishedMsg struct {
 	Err      error
 }
 
+// ViewMode represents the primary view state of the application.
+type ViewMode int
+
+const (
+	ViewModeKanban ViewMode = iota
+	ViewModeInspector
+)
+
 // Model is the root Bubble Tea application model.
 type Model struct {
 	client  GitHubClientInterface
@@ -87,6 +97,11 @@ type Model struct {
 
 	width  int
 	height int
+
+	viewMode          ViewMode
+	inspectorViewport viewport.Model
+	lastSyncTime      time.Time
+	syncInProgress    bool
 }
 
 // MinColumnWidth defines the minimum comfortable outer width for a Kanban column.
@@ -143,17 +158,21 @@ func NewModel(client GitHubClientInterface, tracker TimeTrackerInterface, cfg *c
 	s.Style = lipgloss.NewStyle().Foreground(styles.Palette.Cyan)
 
 	return Model{
-		client:       client,
-		tracker:      tracker,
-		cfg:          cfg,
-		styles:       styles,
-		loading:      true,
-		spinner:      s,
-		activeColumn: 0,
-		activeCard:   make(map[int]int),
-		colOffset:    0,
-		width:        120,
-		height:       30,
+		client:            client,
+		tracker:           tracker,
+		cfg:               cfg,
+		styles:            styles,
+		loading:           true,
+		spinner:           s,
+		activeColumn:      0,
+		activeCard:        make(map[int]int),
+		colOffset:         0,
+		width:             120,
+		height:            30,
+		viewMode:          ViewModeKanban,
+		inspectorViewport: viewport.New(0, 0),
+		lastSyncTime:      time.Time{},
+		syncInProgress:    false,
 	}
 }
 
@@ -225,6 +244,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.adjustViewport()
+
+		if m.viewMode == ViewModeInspector {
+			if item := m.SelectedItem(); item != nil {
+				hMain := m.mainHeight()
+				wModal := max(16, min(m.width-2, int(float64(m.width)*0.85)))
+				hModal := max(7, min(hMain-2, int(float64(hMain)*0.85)))
+				wViewport := max(10, wModal-4)
+				hViewport := max(2, hModal-5)
+
+				m.inspectorViewport.Width = wViewport
+				m.inspectorViewport.Height = hViewport
+				if strings.TrimSpace(item.Body) == "" {
+					m.inspectorViewport.SetContent(m.styles.EmptyNotice.Render("No description provided."))
+				} else {
+					wrapped := lipgloss.NewStyle().Width(wViewport).Render(item.Body)
+					m.inspectorViewport.SetContent(wrapped)
+				}
+			}
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -238,19 +276,80 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.tickCmd())
 
 	case BoardFetchedMsg:
+		var activeID string
+		if it := m.SelectedItem(); it != nil {
+			activeID = it.ID
+		}
+
 		m.loading = false
+		m.syncInProgress = false
+
 		if msg.Err != nil {
 			m.err = msg.Err
 			m.toast = fmt.Sprintf("Error fetching board: %v", msg.Err)
-		} else {
-			m.board = msg.Board
-			m.err = nil
-			m.toast = ""
-			// Clamp active column
+			return m, nil
+		}
+
+		m.board = msg.Board
+		m.err = nil
+		m.toast = ""
+		m.lastSyncTime = time.Now()
+
+		// Clamp active column and card
+		if m.board != nil && len(m.board.Columns) > 0 {
 			if m.activeColumn >= len(m.board.Columns) {
+				m.activeColumn = len(m.board.Columns) - 1
+			}
+			if m.activeColumn < 0 {
 				m.activeColumn = 0
 			}
-			m.adjustViewport()
+			items := m.ItemsInColumn(m.board.Columns[m.activeColumn].ID)
+			if m.activeCard[m.activeColumn] >= len(items) {
+				if len(items) > 0 {
+					m.activeCard[m.activeColumn] = len(items) - 1
+				} else {
+					m.activeCard[m.activeColumn] = 0
+				}
+			}
+		}
+		m.adjustViewport()
+
+		if m.viewMode == ViewModeInspector && activeID != "" {
+			found := false
+			if m.board != nil {
+				for colIdx, col := range m.board.Columns {
+					for itemIdx, item := range m.ItemsInColumn(col.ID) {
+						if item.ID == activeID {
+							m.activeColumn = colIdx
+							m.activeCard[colIdx] = itemIdx
+							found = true
+
+							hMain := m.mainHeight()
+							wModal := max(16, min(m.width-2, int(float64(m.width)*0.85)))
+							hModal := max(7, min(hMain-2, int(float64(hMain)*0.85)))
+							wViewport := max(10, wModal-4)
+							hViewport := max(2, hModal-5)
+
+							m.inspectorViewport.Width = wViewport
+							m.inspectorViewport.Height = hViewport
+							if strings.TrimSpace(item.Body) == "" {
+								m.inspectorViewport.SetContent(m.styles.EmptyNotice.Render("No description provided."))
+							} else {
+								wrapped := lipgloss.NewStyle().Width(wViewport).Render(item.Body)
+								m.inspectorViewport.SetContent(wrapped)
+							}
+							break
+						}
+					}
+					if found {
+						break
+					}
+				}
+			}
+			if !found {
+				m.viewMode = ViewModeKanban
+				m.toast = "Issue no longer exists"
+			}
 		}
 
 	case CardMovedMsg:
@@ -294,6 +393,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					for i := range m.board.Items {
 						if m.board.Items[i].ID == msg.ItemID {
 							m.board.Items[i].Body = string(updatedBody)
+							if m.viewMode == ViewModeInspector {
+								hMain := m.mainHeight()
+								wModal := max(16, min(m.width-2, int(float64(m.width)*0.85)))
+								hModal := max(7, min(hMain-2, int(float64(hMain)*0.85)))
+								wViewport := max(10, wModal-4)
+								hViewport := max(2, hModal-5)
+
+								m.inspectorViewport.Width = wViewport
+								m.inspectorViewport.Height = hViewport
+								if strings.TrimSpace(m.board.Items[i].Body) == "" {
+									m.inspectorViewport.SetContent(m.styles.EmptyNotice.Render("No description provided."))
+								} else {
+									wrapped := lipgloss.NewStyle().Width(wViewport).Render(m.board.Items[i].Body)
+									m.inspectorViewport.SetContent(wrapped)
+								}
+							}
 							break
 						}
 					}
@@ -303,14 +418,69 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// Global keys
+		if msg.Type == tea.KeyCtrlC {
+			return m, tea.Quit
+		}
+
+		if m.viewMode == ViewModeInspector {
+			switch msg.String() {
+			case "esc", "q":
+				m.viewMode = ViewModeKanban
+				return m, nil
+			case "e":
+				cmd := m.launchEditor()
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				return m, tea.Batch(cmds...)
+			case "j", "down", "k", "up", "d", "u", "g", "G", "pgdown", "pgup", "space", "home", "end":
+				var cmd tea.Cmd
+				m.inspectorViewport, cmd = m.inspectorViewport.Update(msg)
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				return m, tea.Batch(cmds...)
+			default:
+				return m, nil
+			}
+		}
+
+		// ViewModeKanban
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "q":
 			return m, tea.Quit
 
+		case "enter", "i":
+			if !m.movingCard {
+				item := m.SelectedItem()
+				if item == nil {
+					m.toast = "No card selected"
+					return m, nil
+				}
+				hMain := m.mainHeight()
+				wModal := max(16, min(m.width-2, int(float64(m.width)*0.85)))
+				hModal := max(7, min(hMain-2, int(float64(hMain)*0.85)))
+				wViewport := max(10, wModal-4)
+				hViewport := max(2, hModal-5)
+
+				m.inspectorViewport.Width = wViewport
+				m.inspectorViewport.Height = hViewport
+				if strings.TrimSpace(item.Body) == "" {
+					m.inspectorViewport.SetContent(m.styles.EmptyNotice.Render("No description provided."))
+				} else {
+					wrapped := lipgloss.NewStyle().Width(wViewport).Render(item.Body)
+					m.inspectorViewport.SetContent(wrapped)
+				}
+				m.inspectorViewport.GotoTop()
+				m.viewMode = ViewModeInspector
+				return m, nil
+			}
+
 		case "r":
-			m.loading = true
+			m.syncInProgress = true
 			m.toast = "Refreshing board..."
-			cmds = append(cmds, m.spinner.Tick, m.fetchBoardCmd())
+			cmds = append(cmds, m.fetchBoardCmd())
 
 		case "h", "left":
 			if m.movingCard {
@@ -588,9 +758,20 @@ func (m *Model) launchEditor() tea.Cmd {
 	})
 }
 
+// mainHeight calculates the dynamic height allocated to the middle tier.
+func (m Model) mainHeight() int {
+	topH := lipgloss.Height(m.renderTopBar(m.width))
+	bottomH := lipgloss.Height(m.renderBottomBar(m.width))
+	h := m.height - topH - bottomH
+	if h < 8 {
+		return 8
+	}
+	return h
+}
+
 // View renders the TUI layout.
 func (m Model) View() string {
-	if m.loading {
+	if m.loading && m.board == nil {
 		return fmt.Sprintf("\n  %s Fetching GitHub Projects v2 Kanban board...\n", m.spinner.View())
 	}
 
@@ -601,435 +782,36 @@ func (m Model) View() string {
 		)
 	}
 
-	if m.board == nil || len(m.board.Columns) == 0 {
-		return m.styles.EmptyNotice.Render("No status columns found on this GitHub Project board.\nPress 'q' to quit.")
-	}
-
-	header := m.renderHeader()
-	statusBar := m.renderStatusBar()
-
-	// Compute exact column height so total view height == m.height
-	colHeight := m.height - lipgloss.Height(header) - lipgloss.Height(statusBar)
-	if colHeight < 8 {
-		colHeight = 8
-	}
-
-	numCols := len(m.board.Columns)
-	visCols := m.VisibleColumnCount()
+	topBar := m.renderTopBar(m.width)
+	bottomBar := m.renderBottomBar(m.width)
+	hMain := m.mainHeight()
 
 	var content string
-	// Render multi-column grid side-by-side whenever 2 or more columns fit,
-	// or when the board itself only has 1 column.
-	// Only degrade to single-column tabbed view on ultra-narrow terminals (W < 50 with numCols > 1).
-	if visCols > 1 || numCols == 1 {
-		m.adjustViewport()
-		var renderedCols []string
-
-		// Distribute m.width across the visCols columns without gaps or overflow
-		wBase := m.width / visCols
-		rem := m.width % visCols
-
-		for i := 0; i < visCols; i++ {
-			colIdx := m.colOffset + i
-			if colIdx >= numCols {
-				break
-			}
-			colOuterWidth := wBase
-			if i < rem {
-				colOuterWidth++
-			}
-			renderedCols = append(renderedCols, m.renderColumn(colIdx, m.board.Columns[colIdx], colOuterWidth, colHeight))
-		}
-		content = lipgloss.JoinHorizontal(lipgloss.Top, renderedCols...)
+	if m.viewMode == ViewModeInspector {
+		content = m.renderInspectorModal(m.width, hMain)
 	} else {
-		content = m.renderSingleColumnTabbed(colHeight)
+		content = m.renderKanbanBoard(m.width, hMain)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, content, statusBar)
-}
-
-func (m Model) renderHeader() string {
-	title := m.styles.AppTitle.Render("󰄶 gh-terrorizer")
-	boardName := ""
-	if m.board != nil {
-		boardInfo := m.board.Title
-		numCols := len(m.board.Columns)
-		visCols := m.VisibleColumnCount()
-		if numCols > visCols {
-			boardInfo += fmt.Sprintf(" [Cols %d-%d of %d]", m.colOffset+1, m.colOffset+visCols, numCols)
-		}
-		boardName = lipgloss.NewStyle().Foreground(m.styles.Palette.Cyan).Render(boardInfo)
-	}
-
-	timerStatus := ""
-	if m.activeTimerItemID != "" {
-		elapsed := time.Since(m.activeTimerStart).Truncate(time.Second)
-		timerStatus = m.styles.StatusTimer.Render(fmt.Sprintf("%s%s [%s]",
-			m.styles.Icon("timer"),
-			m.activeTimerTag,
-			elapsed.String(),
-		))
-	}
-
-	left := lipgloss.JoinHorizontal(lipgloss.Center, title, boardName)
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(timerStatus) - 4
-	if gap < 0 {
-		gap = 0
-	}
-
-	return m.styles.AppHeader.Width(m.width).Render(
-		lipgloss.JoinHorizontal(lipgloss.Center,
-			left,
-			lipgloss.NewStyle().Width(gap).Render(""),
-			timerStatus,
-		),
-	)
-}
-
-func (m Model) renderColumn(colIdx int, col github.Column, outerWidth int, colHeight int) string {
-	items := m.ItemsInColumn(col.ID)
-	isFocusedCol := (colIdx == m.activeColumn)
-
-	boxWidth := outerWidth - 2
-	if boxWidth < 10 {
-		boxWidth = 10
-	}
-	innerContentWidth := boxWidth - 2
-	if innerContentWidth < 8 {
-		innerContentWidth = 8
-	}
-
-	hBox := colHeight
-	if hBox < 8 {
-		hBox = 8
-	}
-	innerContentHeight := hBox - 2
-	if innerContentHeight < 6 {
-		innerContentHeight = 6
-	}
-
-	// Column Title with scroll indicators
-	colTitle := col.Name
-	visCols := m.VisibleColumnCount()
-	numCols := len(m.board.Columns)
-
-	if colIdx == m.colOffset && m.colOffset > 0 {
-		colTitle = "◀ " + colTitle
-	}
-	if colIdx == m.colOffset+visCols-1 && m.colOffset+visCols < numCols {
-		colTitle = colTitle + " ▶"
-	}
-
-	countBadge := m.styles.ColumnCount.Render(fmt.Sprintf("(%d)", len(items)))
-	headerTitle := m.styles.ColumnHeaderTitle.Render(colTitle)
-	header := m.styles.ColumnHeader.Width(innerContentWidth).Render(headerTitle + countBadge)
-	hHeader := lipgloss.Height(header)
-
-	availCardsHeight := innerContentHeight - hHeader
-	if availCardsHeight < 4 {
-		availCardsHeight = 4
-	}
-
-	var cards []string
-	if len(items) == 0 {
-		cards = append(cards, m.styles.EmptyNotice.Render("Empty"))
-	} else {
-		selectedIdx := m.activeCard[colIdx]
-		if selectedIdx < 0 {
-			selectedIdx = 0
-		}
-		if selectedIdx >= len(items) {
-			selectedIdx = len(items) - 1
-		}
-
-		cardWidth := innerContentWidth - 2
-		if cardWidth < 6 {
-			cardWidth = 6
-		}
-
-		renderedCards := make([]string, len(items))
-		cardHeights := make([]int, len(items))
-		for i, item := range items {
-			renderedCards[i] = m.renderCard(item, isFocusedCol && (i == selectedIdx), cardWidth)
-			cardHeights[i] = lipgloss.Height(renderedCards[i])
-		}
-
-		start := selectedIdx
-		end := selectedIdx
-		usedHeight := cardHeights[selectedIdx]
-
-		for {
-			expanded := false
-			if end+1 < len(items) {
-				extraIndicator := 0
-				if start > 0 {
-					extraIndicator++
-				}
-				if end+1 < len(items)-1 {
-					extraIndicator++
-				}
-				if usedHeight+cardHeights[end+1]+extraIndicator <= availCardsHeight {
-					end++
-					usedHeight += cardHeights[end]
-					expanded = true
-				}
+	view := lipgloss.JoinVertical(lipgloss.Left, topBar, content, bottomBar)
+	lines := strings.Split(view, "\n")
+	if len(lines) > m.height && m.height > 0 {
+		topH := lipgloss.Height(topBar)
+		bottomH := lipgloss.Height(bottomBar)
+		availMiddle := m.height - topH - bottomH
+		if availMiddle >= 0 {
+			var clampedLines []string
+			clampedLines = append(clampedLines, lines[:topH]...)
+			middleStart := topH
+			middleEnd := middleStart + availMiddle
+			if middleEnd > len(lines)-bottomH {
+				middleEnd = len(lines) - bottomH
 			}
-
-			if start-1 >= 0 {
-				extraIndicator := 0
-				if start-1 > 0 {
-					extraIndicator++
-				}
-				if end < len(items)-1 {
-					extraIndicator++
-				}
-				if usedHeight+cardHeights[start-1]+extraIndicator <= availCardsHeight {
-					start--
-					usedHeight += cardHeights[start]
-					expanded = true
-				}
-			}
-
-			if !expanded {
-				break
-			}
+			clampedLines = append(clampedLines, lines[middleStart:middleEnd]...)
+			clampedLines = append(clampedLines, lines[len(lines)-bottomH:]...)
+			return strings.Join(clampedLines, "\n")
 		}
-
-		if start > 0 {
-			cards = append(cards, m.styles.EmptyNotice.Render(fmt.Sprintf("↑ %d more", start)))
-		}
-		for i := start; i <= end; i++ {
-			cards = append(cards, renderedCards[i])
-		}
-		if end < len(items)-1 {
-			cards = append(cards, m.styles.EmptyNotice.Render(fmt.Sprintf("↓ %d more", len(items)-1-end)))
-		}
+		return strings.Join(lines[:m.height], "\n")
 	}
-
-	body := lipgloss.JoinVertical(lipgloss.Left, cards...)
-
-	boxStyle := m.styles.ColumnBox.
-		Width(boxWidth).
-		Height(hBox).
-		MaxHeight(hBox)
-	if isFocusedCol {
-		boxStyle = m.styles.ColumnBoxFocused.
-			Width(boxWidth).
-			Height(hBox).
-			MaxHeight(hBox)
-	}
-
-	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, body))
-}
-
-func (m Model) renderSingleColumnTabbed(colHeight int) string {
-	var tabs []string
-	for idx, col := range m.board.Columns {
-		label := fmt.Sprintf("[%d: %s (%d)]", idx+1, col.Name, len(m.ItemsInColumn(col.ID)))
-		if idx == m.activeColumn {
-			tabs = append(tabs, m.styles.TabActive.Render(label))
-		} else {
-			tabs = append(tabs, m.styles.TabInactive.Render(label))
-		}
-	}
-	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
-	hTabs := lipgloss.Height(tabBar)
-
-	activeCol := m.board.Columns[m.activeColumn]
-	activeItems := m.ItemsInColumn(activeCol.ID)
-
-	availCardsHeight := colHeight - hTabs
-	if availCardsHeight < 4 {
-		availCardsHeight = 4
-	}
-
-	var cards []string
-	if len(activeItems) == 0 {
-		cards = append(cards, m.styles.EmptyNotice.Render("Empty column"))
-	} else {
-		selectedIdx := m.activeCard[m.activeColumn]
-		if selectedIdx < 0 {
-			selectedIdx = 0
-		}
-		if selectedIdx >= len(activeItems) {
-			selectedIdx = len(activeItems) - 1
-		}
-
-		cardWidth := m.width - 6
-		if cardWidth < 10 {
-			cardWidth = 10
-		}
-
-		renderedCards := make([]string, len(activeItems))
-		cardHeights := make([]int, len(activeItems))
-		for i, item := range activeItems {
-			renderedCards[i] = m.renderCard(item, i == selectedIdx, cardWidth)
-			cardHeights[i] = lipgloss.Height(renderedCards[i])
-		}
-
-		start := selectedIdx
-		end := selectedIdx
-		usedHeight := cardHeights[selectedIdx]
-
-		for {
-			expanded := false
-			if end+1 < len(activeItems) {
-				extraIndicator := 0
-				if start > 0 {
-					extraIndicator++
-				}
-				if end+1 < len(activeItems)-1 {
-					extraIndicator++
-				}
-				if usedHeight+cardHeights[end+1]+extraIndicator <= availCardsHeight {
-					end++
-					usedHeight += cardHeights[end]
-					expanded = true
-				}
-			}
-
-			if start-1 >= 0 {
-				extraIndicator := 0
-				if start-1 > 0 {
-					extraIndicator++
-				}
-				if end < len(activeItems)-1 {
-					extraIndicator++
-				}
-				if usedHeight+cardHeights[start-1]+extraIndicator <= availCardsHeight {
-					start--
-					usedHeight += cardHeights[start]
-					expanded = true
-				}
-			}
-
-			if !expanded {
-				break
-			}
-		}
-
-		if start > 0 {
-			cards = append(cards, m.styles.EmptyNotice.Render(fmt.Sprintf("↑ %d more", start)))
-		}
-		for i := start; i <= end; i++ {
-			cards = append(cards, renderedCards[i])
-		}
-		if end < len(activeItems)-1 {
-			cards = append(cards, m.styles.EmptyNotice.Render(fmt.Sprintf("↓ %d more", len(activeItems)-1-end)))
-		}
-	}
-
-	colBody := lipgloss.JoinVertical(lipgloss.Left, cards...)
-	return lipgloss.JoinVertical(lipgloss.Left, tabBar, colBody)
-}
-
-func (m Model) renderCard(item github.ProjectItem, isFocused bool, width int) string {
-	// Card style selection
-	cardStyle := m.styles.CardNormal.Width(width)
-	if isFocused {
-		if m.movingCard {
-			cardStyle = m.styles.CardMoving.Width(width)
-		} else {
-			cardStyle = m.styles.CardFocused.Width(width)
-		}
-	}
-
-	// Badges & title
-	prefix := m.styles.Icon("issue")
-	if item.Type == "PULL_REQUEST" {
-		prefix = m.styles.Icon("pr")
-	} else if item.Type == "DRAFT_ISSUE" {
-		prefix = m.styles.Icon("draft")
-	}
-
-	numberStr := ""
-	if item.Number > 0 {
-		numberStr = fmt.Sprintf("#%d", item.Number)
-	}
-
-	titleLine := fmt.Sprintf("%s%s %s",
-		prefix,
-		m.styles.CardNumber.Render(numberStr),
-		m.styles.CardTitle.Render(item.Title),
-	)
-
-	// Hours badge
-	hoursStr := timew.FormatHours(item.HoursSpent)
-	hoursBadge := m.styles.CardHours.Render(fmt.Sprintf("%s%s", m.styles.Icon("timer"), hoursStr))
-	if m.activeTimerItemID == item.ID {
-		hoursBadge = m.styles.CardHoursActive.Render(fmt.Sprintf("%s%s [TRACKING]", m.styles.Icon("timer"), hoursStr))
-	}
-
-	// Second line: Milestone + labels
-	var metaBadges []string
-	if item.Milestone != nil {
-		metaBadges = append(metaBadges, m.styles.BadgeMilestone.Render(
-			fmt.Sprintf("%s%s", m.styles.Icon("milestone"), item.Milestone.Title),
-		))
-	}
-	for _, l := range item.Labels {
-		metaBadges = append(metaBadges, m.styles.BadgeLabel.Render(l.Name))
-	}
-	metaBadges = append(metaBadges, hoursBadge)
-	metaLine := lipgloss.JoinHorizontal(lipgloss.Center, metaBadges...)
-
-	return cardStyle.Render(lipgloss.JoinVertical(lipgloss.Left, titleLine, metaLine))
-}
-
-func (m Model) renderStatusBar() string {
-	keys := []struct {
-		key  string
-		desc string
-	}{
-		{"h/l", "cols"},
-		{"j/k", "cards"},
-		{"H/L", "move"},
-		{"t", "timer"},
-		{"e", "edit"},
-		{"r", "refresh"},
-		{"q", "quit"},
-	}
-
-	if m.width < 85 {
-		keys = []struct {
-			key  string
-			desc string
-		}{
-			{"h/l", "cols"},
-			{"j/k", "cards"},
-			{"H/L", "move"},
-			{"t", "timer"},
-			{"q", "quit"},
-		}
-	}
-
-	var items []string
-	for _, k := range keys {
-		items = append(items, m.styles.StatusKey.Render(k.key), m.styles.StatusDesc.Render(k.desc))
-	}
-
-	if m.board != nil && len(m.board.Columns) > 0 {
-		colIndicator := fmt.Sprintf("[%d/%d: %s]", m.activeColumn+1, len(m.board.Columns), m.board.Columns[m.activeColumn].Name)
-		items = append(items, m.styles.BadgeState.Render(colIndicator))
-	}
-
-	left := lipgloss.JoinHorizontal(lipgloss.Center, items...)
-
-	right := ""
-	if m.toast != "" {
-		right = m.styles.ToastError.Render(m.toast)
-	}
-
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
-	if gap < 0 {
-		gap = 0
-	}
-
-	return m.styles.StatusBar.Width(m.width).Render(
-		lipgloss.JoinHorizontal(lipgloss.Center,
-			left,
-			lipgloss.NewStyle().Width(gap).Render(""),
-			right,
-		),
-	)
+	return view
 }
