@@ -8,17 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **3-Tier Terminal Workstation Layout**: Structured Lazygit-inspired workstation partitioning the viewport into a persistent Top Bar (branding, repository context, live Timewarrior status with in-memory $1\text{ s}$ elapsed timer, and on-demand synchronization timestamps), an adaptable Main Area (Kanban board or Issue Inspector Modal), and a contextual Bottom Bar with dynamic Vim action hints and notification toasts.
-- **Focused Issue Inspector Modal**: Centered modal view (`Enter`/`i` on focused card) replacing the board view in the main tier with metadata badges (state, milestone, tracked hours), horizontal divider, and embedded scrollable viewport (`bubbles/viewport`) with Lip Gloss word wrapping.
-- **Modal Navigation Motions**: Viewport vertical scrolling (`j`/`k`, `d`/`u`, `g`/`G`, arrow keys, page up/down), external `$EDITOR` launching (`e`), and non-destructive modal dismissal returning focus to the previous card (`Esc`/`q`).
-- **On-Demand GitHub Board Synchronization**: Ambient board refresh key (`r`) triggering asynchronous GraphQL queries without blocking the UI (`loading = false`) or resetting active cursor positions.
-- **Pure Layout Rendering Architecture**: Decoupled visual rendering into deterministic, unit-testable pure functions in `internal/tui/render.go`.
-- **Design Documentation**: Technical design specification for the 3-tier workstation in `docs/designs/workstation_modal.md` and centralized sitemap in `docs/designs/SITEMAP.md`.
+- **Look & Feel Visual Overhaul**: Adopted sharp `lipgloss.ThickBorder()` container frames across Kanban columns, cards, and modal frames, establishing a unified, high-contrast terminal workstation aesthetic.
+- **Adaptive 3-Row Card Layout with Collapsible Metadata**: Cards dynamically collapse when neither milestone nor labels are assigned ($h_{\text{inner}} = 2$, $h_{\text{outer}} = 4$ lines vs expanded $h_{\text{inner}} = 3$, $h_{\text{outer}} = 5$ lines), increasing visible card density by up to $33\%$ on standard terminals ($H \le 24$).
+- **Configurable Label-to-Color Type Indicators**: Introduced `[theme.issue_type_labels]` in `config.toml` mapping issue labels to circle indicator colors (`●`) with first-match resolution and comment fallback, keeping configuration cleanly decoupled from domain models.
+- **Domain Entity Type Preservation**: Explicit item type glyphs (` ` for Pull Requests, ` ` for Draft Issues, ` ` for Standard Issues) displayed on Row 2 to maintain entity differentiation on cards.
+- **Unambiguous Iconography**: Replaced ambiguous milestone icon with signpost flag ` ` (`[M]`), added type circle `● ` (`* `), and replaced `[TRACKING]` textual badge with active green clock icon (`󱎫`) via `CardHoursActive`.
 
 ### Changed
+- Removed inter-card vertical bottom margins (`MarginBottom(1)`), achieving zero-gap card packing across Kanban columns.
 - Reorganized documentation structure by moving legacy documents from `docs/1/` to `docs/designs/` and merging design sitemaps.
 
 ### Fixed
+- **Modal Frame Corner Alignment**: Fixed outer width coordinate calculation by configuring `ModalFrame.Width(wModal - 2)`, ensuring top border title injection (`┏━ ... ━┓`), vertical side borders (`┃`), and bottom border (`┗━ ... ━┛`) align strictly flush across all terminal dimensions without horizontal offset or line wrapping.
+- **ANSI Escape Sequence Slicing**: Pre-truncated unstyled titles on Row 2 before applying Lip Gloss styles, and applied ANSI-aware truncation (`ansi.Truncate`) on Row 3, eliminating escape code corruption and color leakage across lines.
+- **Runtime Nil Pointer Safety**: Added explicit `m.cfg == nil` guard in `resolveLabelColor`, preventing runtime panics ($SIGSEGV$) during headless testing or default initialization.
 - **Terminal Vertical Height Overflow**: Replaced `EmptyNotice` (`Padding(2, 4)`) with dedicated zero-padding `ScrollIndicator` for card scroll indicators (`↑ %d more`, `↓ %d more`), fixed expansion budgeting, and enforced strict boundary clamping in `renderColumn`, `renderSingleColumnTabbed`, and `View()`, completely preventing the Top Bar and column headers from scrolling off the top of the terminal screen across all terminal dimensions $H \times W$.
 
 ## [0.1.0] - 2026-10-31

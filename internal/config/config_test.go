@@ -95,6 +95,43 @@ show_icons = false
 	}
 }
 
+func TestLoadConfig_IssueTypeLabels(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	content := `
+[theme]
+variant = "storm"
+show_icons = true
+
+[theme.issue_type_labels]
+"Bug" = "#f7768e"
+"FEATURE" = "#7aa2f7"
+"task" = "#e0af68"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if len(cfg.Theme.IssueTypeLabels) != 3 {
+		t.Fatalf("expected 3 issue type labels, got %d", len(cfg.Theme.IssueTypeLabels))
+	}
+	if hex, ok := cfg.Theme.IssueTypeLabels["bug"]; !ok || hex != "#f7768e" {
+		t.Errorf("expected bug -> #f7768e, got %s (ok=%v)", hex, ok)
+	}
+	if hex, ok := cfg.Theme.IssueTypeLabels["feature"]; !ok || hex != "#7aa2f7" {
+		t.Errorf("expected feature -> #7aa2f7, got %s (ok=%v)", hex, ok)
+	}
+	if hex, ok := cfg.Theme.IssueTypeLabels["task"]; !ok || hex != "#e0af68" {
+		t.Errorf("expected task -> #e0af68, got %s (ok=%v)", hex, ok)
+	}
+}
+
 func TestExpandPath(t *testing.T) {
 	expanded, err := ExpandPath("~/test/path")
 	if err != nil {

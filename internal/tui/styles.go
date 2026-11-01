@@ -154,34 +154,31 @@ func NewStyles(variant string, icons bool) Styles {
 			MarginLeft(1),
 
 		ColumnBox: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(p.BorderInactive).
 			Padding(0, 1),
 
 		ColumnBoxFocused: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(p.Blue).
 			Padding(0, 1),
 
 		CardNormal: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(p.BorderInactive).
-			Padding(0, 1).
-			MarginBottom(1),
+			Padding(0, 1),
 
 		CardFocused: lipgloss.NewStyle().
 			Border(lipgloss.ThickBorder()).
 			BorderForeground(p.Blue).
 			Background(p.BgHighlight).
-			Padding(0, 1).
-			MarginBottom(1),
+			Padding(0, 1),
 
 		CardMoving: lipgloss.NewStyle().
 			Border(lipgloss.DoubleBorder()).
 			BorderForeground(p.Purple).
 			Background(p.BgHighlight).
-			Padding(0, 1).
-			MarginBottom(1),
+			Padding(0, 1),
 
 		CardTitle: lipgloss.NewStyle().
 			Foreground(p.Fg).
@@ -196,11 +193,7 @@ func NewStyles(variant string, icons bool) Styles {
 			MarginLeft(1),
 
 		CardHoursActive: lipgloss.NewStyle().
-			Background(p.Orange).
-			Foreground(p.BgDark).
-			Bold(true).
-			Padding(0, 1).
-			MarginLeft(1),
+			Foreground(p.Green),
 
 		BadgeMilestone: lipgloss.NewStyle().
 			Background(p.BgHighlight).
@@ -268,7 +261,7 @@ func NewStyles(variant string, icons bool) Styles {
 			Foreground(p.Comment),
 
 		ModalFrame: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(p.Blue).
 			Padding(0, 1),
 
@@ -300,6 +293,8 @@ func (s *Styles) Icon(iconName string) string {
 			return "[TIMER]"
 		case "milestone":
 			return "[M]"
+		case "type_circle":
+			return "* "
 		case "issue":
 			return "#"
 		case "pr":
@@ -317,7 +312,9 @@ func (s *Styles) Icon(iconName string) string {
 	case "timer":
 		return "󱎫 "
 	case "milestone":
-		return " "
+		return " "
+	case "type_circle":
+		return "● "
 	case "issue":
 		return " "
 	case "pr":

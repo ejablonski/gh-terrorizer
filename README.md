@@ -22,13 +22,15 @@ Built with Go, [Charm's Bubble Tea](https://github.com/charmbracelet/bubbletea),
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │ 󰄶 gh-terrorizer │ ejablonski/gh-terrorizer #1 │ 󱎫 gh-42 [01:23:45] │ 󰄬 Synced (r: sync) │  <- Top Bar
 ├────────────────────────────────────────────────────────────────────────────────────────┤
-│ ╭─ Todo (3) ────╮ ╭─ In Progress (2) ─╮ ╭─ Done (5) ─────────────────────────────────╮ │
-│ │  #10 Task 1  │ │ ┏━━━━━━━━━━━━━━━┓ │ │  #05 Setup Repo                            │ │  <- Main Area
-│ │  󱎫 1.00h      │ │ ┃  #42 Task 3  ┃ │ │  󱎫 0.50h                                    │ │     (Kanban View)
-│ │ ╭───────────╮ │ │ ┃  󱎫 0.50h      ┃ │ ╰────────────────────────────────────────────╯ │
-│ │ │  #20 Task│ │ │ ┗━━━━━━━━━━━━━━━┛ │                                                │
-│ │ ╰───────────╯ │ ╰───────────────────╯                                                │
-│ ╰───────────────╯                                                                      │
+│ ┏━ Todo (3) ━━━━┓ ┏━ In Progress (2) ━┓ ┏━ Done (5) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ │
+│ ┃ ●       󱎫 1.0h┃ ┃ ┏━━━━━━━━━━━━━━━┓ ┃ ┃ ●                               󱎫 0.5h     ┃ │  <- Main Area
+│ ┃  #10 Task 1  ┃ ┃ ┃ ●       󱎫 0.5h┃ ┃ ┃  #05 Setup Repo                            ┃ │     (Kanban View)
+│ ┃   v1.0       ┃ ┃ ┃  #42 Task 3  ┃ ┃ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │
+│ ┃ ┏━━━━━━━━━━━┓ ┃ ┃ ┃  bug          ┃ ┃                                                ┃ │
+│ ┃ ┃ ●         ┃ ┃ ┃ ┗━━━━━━━━━━━━━━━┛ ┃                                                ┃ │
+│ ┃ ┃  #20 Task┃ ┃ ┗━━━━━━━━━━━━━━━━━━━┛                                                ┃ │
+│ ┃ ┗━━━━━━━━━━━┛ ┃                                                                      ┃ │
+│ ┗━━━━━━━━━━━━━━━┛                                                                      ┃ │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
 │ h/l: cols • j/k: cards • m: move • H/L: shift • t: timer • r: sync • Enter/i: inspect • q: quit │  <- Bottom Bar
 └────────────────────────────────────────────────────────────────────────────────────────┘
@@ -40,17 +42,17 @@ When inspecting an issue (`Enter` or `i`), the centered Issue Inspector Modal re
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │ 󰄶 gh-terrorizer │ ejablonski/gh-terrorizer #1 │ 󱎫 gh-42 [01:23:45] │ 󰄬 Synced (r: sync) │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
-│                   ╭─ Issue #42: Authentication Token Refresh ────────╮                 │
-│                   │ State: OPEN  │ Milestone: v1.0 │ Tracked: 2.50h  │                 │
-│                   ├──────────────────────────────────────────────────┤                 │
-│                   │ Description:                                     │                 │
-│                   │ When the access token expires, the client fails  │                 │
-│                   │ to refresh credentials against GitHub OAuth API. │                 │
-│                   │ Steps to reproduce:                              │                 │
-│                   │  1. Invalidate cached token.                     │                 │
-│                   │  2. Run query command.                           │                 │
-│                   │                                            [28%] │                 │
-│                   ╰──────────────────────────────────────────────────╯                 │
+│                   ┏━ Issue #42: Authentication Token Refresh ━━━━━━━━┓                 │
+│                   ┃ OPEN   v1.0  󱎫 2.50h                            ┃                 │
+│                   ┃ ──────────────────────────────────────────────── ┃                 │
+│                   ┃ Description:                                     ┃                 │
+│                   ┃ When the access token expires, the client fails  ┃                 │
+│                   ┃ to refresh credentials against GitHub OAuth API. ┃                 │
+│                   ┃ Steps to reproduce:                              ┃                 │
+│                   ┃  1. Invalidate cached token.                     ┃                 │
+│                   ┃  2. Run query command.                           ┃                 │
+│                   ┃                                            [28%] ┃                 │
+│                   ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛                 │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
 │ j/k: scroll • d/u: half page • g/G: top/bottom • e: edit in $EDITOR • Esc/q: back      │
 └────────────────────────────────────────────────────────────────────────────────────────┘
@@ -194,6 +196,11 @@ tag_prefix = "gh-"                  # Tag prefix passed to timew start (e.g. gh-
 [theme]
 variant = "storm"                   # "storm" or "night"
 show_icons = true                   # Set false to disable Nerd Font symbols
+
+[theme.issue_type_labels]
+"bug" = "#f7768e"                   # Map GitHub label to circle indicator hex color
+"feature" = "#7aa2f7"
+"task" = "#e0af68"
 ```
 
 ---

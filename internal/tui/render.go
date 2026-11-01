@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ejablonski/gh-terrorizer/internal/github"
 	"github.com/ejablonski/gh-terrorizer/internal/timew"
 	"github.com/mattn/go-runewidth"
@@ -179,14 +180,14 @@ func (m Model) renderInspectorModal(width, height int) string {
 	// Combine inner lines
 	content := lipgloss.JoinVertical(lipgloss.Left, metaStrip, divider, viewportView, footer)
 
-	// Apply ModalFrame
-	modalBox := m.styles.ModalFrame.Width(wViewport).Render(content)
+	// Apply ModalFrame with width wModal - 2 so outer border box strictly equals wModal
+	modalBox := m.styles.ModalFrame.Width(wModal - 2).Render(content)
 
 	// Inject title into top border line if space permits
 	lines := strings.Split(modalBox, "\n")
 	if len(lines) > 0 && availWidth >= 6 && headerTitle != "" {
-		remainingDashes := max(0, wModal-runewidth.StringWidth(headerTitle)-5)
-		topBorder := "╭─ " + headerTitle + " " + strings.Repeat("─", remainingDashes) + "╮"
+		remainingDashes := max(1, wModal-runewidth.StringWidth(headerTitle)-5)
+		topBorder := "┏━ " + headerTitle + " " + strings.Repeat("━", remainingDashes) + "┓"
 		lines[0] = lipgloss.NewStyle().Foreground(m.styles.Palette.Blue).Render(topBorder)
 		modalBox = strings.Join(lines, "\n")
 	}
@@ -477,55 +478,107 @@ func (m Model) renderSingleColumnTabbed(colHeight int) string {
 	return tabbed
 }
 
+// resolveLabelColor returns the hex color for the first matching label based on theme.issue_type_labels.
+func (m Model) resolveLabelColor(item github.ProjectItem) string {
+	fallback := string(m.styles.Palette.Comment)
+	if m.cfg == nil || len(m.cfg.Theme.IssueTypeLabels) == 0 || len(item.Labels) == 0 {
+		return fallback
+	}
+	for _, l := range item.Labels {
+		if hex, ok := m.cfg.Theme.IssueTypeLabels[strings.ToLower(l.Name)]; ok {
+			return hex
+		}
+	}
+	return fallback
+}
+
 func (m Model) renderCard(item github.ProjectItem, isFocused bool, width int) string {
-	// Card style selection
-	cardStyle := m.styles.CardNormal.Width(width)
+	wInner := width - 4
+	if wInner < 0 {
+		wInner = 0
+	}
+
+	cardBoxWidth := width - 2
+	if cardBoxWidth < 0 {
+		cardBoxWidth = 0
+	}
+
+	cardStyle := m.styles.CardNormal.Width(cardBoxWidth)
 	if isFocused {
 		if m.movingCard {
-			cardStyle = m.styles.CardMoving.Width(width)
+			cardStyle = m.styles.CardMoving.Width(cardBoxWidth)
 		} else {
-			cardStyle = m.styles.CardFocused.Width(width)
+			cardStyle = m.styles.CardFocused.Width(cardBoxWidth)
 		}
 	}
 
-	// Badges & title
-	prefix := m.styles.Icon("issue")
-	if item.Type == "PULL_REQUEST" {
-		prefix = m.styles.Icon("pr")
-	} else if item.Type == "DRAFT_ISSUE" {
-		prefix = m.styles.Icon("draft")
-	}
+	// Row 1: Left circle indicator + Right hours badge
+	left := lipgloss.NewStyle().Foreground(lipgloss.Color(m.resolveLabelColor(item))).Render(m.styles.Icon("type_circle"))
 
-	numberStr := ""
-	if item.Number > 0 {
-		numberStr = fmt.Sprintf("#%d", item.Number)
-	}
-
-	titleLine := fmt.Sprintf("%s%s %s",
-		prefix,
-		m.styles.CardNumber.Render(numberStr),
-		m.styles.CardTitle.Render(item.Title),
-	)
-
-	// Hours badge
+	var right string
 	hoursStr := timew.FormatHours(item.HoursSpent)
-	hoursBadge := m.styles.CardHours.Render(fmt.Sprintf("%s%s", m.styles.Icon("timer"), hoursStr))
 	if m.activeTimerItemID == item.ID {
-		hoursBadge = m.styles.CardHoursActive.Render(fmt.Sprintf("%s%s [TRACKING]", m.styles.Icon("timer"), hoursStr))
+		right = m.styles.CardHoursActive.Render(m.styles.Icon("timer")) + m.styles.CardHours.Render(hoursStr)
+	} else {
+		right = m.styles.CardHours.Render(m.styles.Icon("timer") + hoursStr)
 	}
 
-	// Second line: Milestone + labels
-	var metaBadges []string
-	if item.Milestone != nil {
-		metaBadges = append(metaBadges, m.styles.BadgeMilestone.Render(
-			fmt.Sprintf("%s%s", m.styles.Icon("milestone"), item.Milestone.Title),
-		))
+	var row1 string
+	if wInner < 10 {
+		row1 = left
+	} else {
+		gap := max(1, wInner-lipgloss.Width(left)-lipgloss.Width(right))
+		row1 = left + strings.Repeat(" ", gap) + right
 	}
-	for _, l := range item.Labels {
-		metaBadges = append(metaBadges, m.styles.BadgeLabel.Render(l.Name))
+	if lipgloss.Width(row1) > wInner {
+		row1 = ansi.Truncate(row1, wInner, "")
 	}
-	metaBadges = append(metaBadges, hoursBadge)
-	metaLine := lipgloss.JoinHorizontal(lipgloss.Center, metaBadges...)
 
-	return cardStyle.Render(lipgloss.JoinVertical(lipgloss.Left, titleLine, metaLine))
+	// Row 2: Type glyph + #Num + Title
+	typeIcon := m.styles.Icon("issue")
+	if item.Type == "PULL_REQUEST" {
+		typeIcon = m.styles.Icon("pr")
+	} else if item.Type == "DRAFT_ISSUE" {
+		typeIcon = m.styles.Icon("draft")
+	}
+
+	prefix := fmt.Sprintf("%s#%d", typeIcon, item.Number)
+	if typeIcon == "#" {
+		prefix = fmt.Sprintf("#%d", item.Number)
+	}
+	if item.Number == 0 {
+		prefix = typeIcon
+	}
+
+	wPrefix := lipgloss.Width(m.styles.CardNumber.Render(prefix))
+	var truncTitle string
+	if wInner > wPrefix {
+		wAvail := wInner - wPrefix
+		truncTitle = runewidth.Truncate(item.Title, wAvail, "...")
+	}
+	row2 := m.styles.CardNumber.Render(prefix) + m.styles.CardTitle.Render(truncTitle)
+	if lipgloss.Width(row2) > wInner {
+		row2 = ansi.Truncate(row2, wInner, "")
+	}
+
+	// Row 3: Metadata strip (Milestone + Labels) - collapsible
+	var rows []string
+	rows = append(rows, row1, row2)
+
+	if item.Milestone != nil || len(item.Labels) > 0 {
+		var metaBadges []string
+		if item.Milestone != nil {
+			metaBadges = append(metaBadges, m.styles.BadgeMilestone.Render(
+				fmt.Sprintf("%s%s", m.styles.Icon("milestone"), item.Milestone.Title),
+			))
+		}
+		for _, l := range item.Labels {
+			metaBadges = append(metaBadges, m.styles.BadgeLabel.Render(l.Name))
+		}
+		row3Joined := lipgloss.JoinHorizontal(lipgloss.Left, metaBadges...)
+		row3 := ansi.Truncate(row3Joined, wInner, "...")
+		rows = append(rows, row3)
+	}
+
+	return cardStyle.Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
 }

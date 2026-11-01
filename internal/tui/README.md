@@ -1,7 +1,7 @@
 # tui
 
 ## Overview
-Package `tui` contains the interactive Bubble Tea terminal user interface and Lip Gloss styling for `gh-terrorizer`. It implements a 3-tier terminal workstation architecture inspired by Lazygit: a persistent Top Bar displaying session, ambient Timewarrior status, and on-demand synchronization timestamps; an adaptable Main Area presenting either responsive multi-column Kanban boards or a centered, scrollable Issue Inspector Modal with word-wrapped markdown bodies; and a context-sensitive Bottom Bar rendering dynamic navigation keybinding hints and notification toasts.
+Package `tui` contains the interactive Bubble Tea terminal user interface and Lip Gloss styling for `gh-terrorizer`. It implements a 3-tier terminal workstation architecture inspired by Lazygit: a persistent Top Bar displaying session, ambient Timewarrior status, and on-demand synchronization timestamps; an adaptable Main Area presenting either responsive multi-column Kanban boards with thick-bordered, collapsible 3-row cards or a centered, scrollable Issue Inspector Modal with word-wrapped markdown bodies; and a context-sensitive Bottom Bar rendering dynamic navigation keybinding hints and notification toasts.
 
 ## Architecture & 3-Tier Layout Geometry
 
@@ -14,13 +14,15 @@ $$h_{\text{content}} = h_{\text{main}} - 2 \quad (\text{Kanban column inner cont
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │ 󰄶 gh-terrorizer │ ejablonski/gh-terrorizer #1 │ 󱎫 gh-42 [01:23:45] │ 󰄬 Synced (r: sync) │  <- Top Bar
 ├────────────────────────────────────────────────────────────────────────────────────────┤
-│ ╭─ Todo (3) ────╮ ╭─ In Progress (2) ─╮ ╭─ Done (5) ─────────────────────────────────╮ │
-│ │  #10 Task 1  │ │ ┏━━━━━━━━━━━━━━━┓ │ │  #05 Setup Repo                            │ │  <- Main Area
-│ │  󱎫 1.00h      │ │ ┃  #42 Task 3  ┃ │ │  󱎫 0.50h                                    │ │     (h_main rows)
-│ │ ╭───────────╮ │ │ ┃  󱎫 0.50h      ┃ │ ╰────────────────────────────────────────────╯ │     Kanban or Modal
-│ │ │  #20 Task│ │ │ ┗━━━━━━━━━━━━━━━┛ │                                                │
-│ │ ╰───────────╯ │ ╰───────────────────╯                                                │
-│ ╰───────────────╯                                                                      │
+│ ┏━ Todo (3) ━━━━┓ ┏━ In Progress (2) ━┓ ┏━ Done (5) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ │
+│ ┃ ●       󱎫 1.0h┃ ┃ ┏━━━━━━━━━━━━━━━┓ ┃ ┃ ●                               󱎫 0.5h     ┃ │  <- Main Area
+│ ┃  #10 Task 1  ┃ ┃ ┃ ●       󱎫 0.5h┃ ┃ ┃  #05 Setup Repo                            ┃ │     (h_main rows)
+│ ┃   v1.0       ┃ ┃ ┃  #42 Task 3  ┃ ┃ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │     Kanban or Modal
+│ ┃ ┏━━━━━━━━━━━┓ ┃ ┃ ┃  bug          ┃ ┃                                                ┃ │
+│ ┃ ┃ ●         ┃ ┃ ┃ ┗━━━━━━━━━━━━━━━┛ ┃                                                ┃ │
+│ ┃ ┃  #20 Task┃ ┃ ┗━━━━━━━━━━━━━━━━━━━┛                                                ┃ │
+│ ┃ ┗━━━━━━━━━━━┛ ┃                                                                      ┃ │
+│ ┗━━━━━━━━━━━━━━━┛                                                                      ┃ │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
 │ h/l: cols • j/k: cards • m: move • H/L: shift • t: timer • r: sync • Enter/i: inspect • q: quit │  <- Bottom Bar
 └────────────────────────────────────────────────────────────────────────────────────────┘
@@ -29,8 +31,10 @@ $$h_{\text{content}} = h_{\text{main}} - 2 \quad (\text{Kanban column inner cont
 Rendering is decoupled from state management via pure, deterministic layout functions located in [`render.go`](file:///home/ejablonski/dev/gh-terrorizer/internal/tui/render.go):
 - `(Model) renderTopBar(width int) string`: Renders repository/project details, live in-memory Timewarrior timer badge (`activeTimerTag` + elapsed time), and sync status. Truncates owner prefix on compact displays ($W < 85$).
 - `(Model) renderBottomBar(width int) string`: Context-sensitive keybinding strip and error/toast notification badges.
-- `(Model) renderInspectorModal(width, height int) string`: Renders the centered modal window framing issue metadata, status badge, milestone, tracked hours, and word-wrapped issue body inside an embedded [`bubbles/viewport`](https://github.com/charmbracelet/bubbles).
+- `(Model) renderInspectorModal(width, height int) string`: Renders the centered modal window framing issue metadata, status badge, milestone, tracked hours, and word-wrapped issue body with flush `ThickBorder` top title injection (`┏━ #num title ━┓`).
 - `(Model) renderKanbanBoard(width, height int) string`: Renders multi-column board or single-column tabbed view depending on terminal width.
+- `(Model) renderCard(item github.ProjectItem, isFocused bool, width int) string`: Assembles the adaptive 3-row card layout with `lipgloss.ThickBorder()`. Row 1 features an issue type circle indicator colored via `[theme.issue_type_labels]` and right-aligned hours; Row 2 displays item type glyphs (` `, ` `, ` `), `#<number>`, and pre-truncated titles; Row 3 displays milestone (` `) and labels, and is collapsed entirely when empty ($h_{\text{inner}} = 2$, $h_{\text{outer}} = 4$ lines vs expanded $h_{\text{inner}} = 3$, $h_{\text{outer}} = 5$ lines).
+- `(Model) resolveLabelColor(item github.ProjectItem) string`: Resolves label color mappings from configuration with first-match precedence and comment fallback.
 - `formatRelativeTime(t time.Time) string`: Formats synchronization timestamps into human-readable relative labels (`󰄬 Initialized`, `󰄬 Synced just now`, `󰄬 Synced %dm ago`).
 
 ## Modal Geometry & Viewport Lifecycle
@@ -99,6 +103,8 @@ stateDiagram-v2
 ## Invariants
 
 - Total rendered view height strictly equals terminal height $H$ by budgeting $h_{\text{main}} = H - \text{lipgloss.Height}(\text{topBar}) - \text{lipgloss.Height}(\text{bottomBar})$, preventing vertical scrolling or bottom border truncation.
+- Cards maintain deterministic outer heights $h_{\text{outer}} \in \{4, 5\}$ lines: collapsed cards without milestone/labels occupy $4$ lines, and cards with metadata occupy $5$ lines with zero inter-card margins.
+- All card rows are strictly clamped to $w_{\text{inner}} = \text{width} - 4$ with ANSI-safe truncation, preventing line wrapping and preserving column card count budgets.
 - Opening and closing the Issue Inspector Modal preserves exact column and card cursor coordinates (`m.activeColumn`, `m.activeCard`).
 - Remote synchronization via `BoardFetchedMsg` preserves active cursor coordinates when issues relocate and closes the modal gracefully if the inspected card was deleted remotely.
 - In-memory 1s ticker updates elapsed tracking duration without spawning external subprocesses.

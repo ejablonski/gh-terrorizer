@@ -11,8 +11,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ejablonski/gh-terrorizer/internal/config"
 	"github.com/ejablonski/gh-terrorizer/internal/github"
+	"github.com/mattn/go-runewidth"
 )
 
 type mockGitHubClient struct {
@@ -491,8 +493,11 @@ func TestStyles_Icons(t *testing.T) {
 	if stylesWithIcons.Icon("timer") != "󱎫 " {
 		t.Errorf("unexpected timer icon: %s", stylesWithIcons.Icon("timer"))
 	}
-	if stylesWithIcons.Icon("milestone") != " " {
+	if stylesWithIcons.Icon("milestone") != " " {
 		t.Errorf("unexpected milestone icon: %s", stylesWithIcons.Icon("milestone"))
+	}
+	if stylesWithIcons.Icon("type_circle") != "● " {
+		t.Errorf("unexpected type_circle icon: %s", stylesWithIcons.Icon("type_circle"))
 	}
 
 	stylesNoIcons := NewStyles("night", false)
@@ -501,6 +506,9 @@ func TestStyles_Icons(t *testing.T) {
 	}
 	if stylesNoIcons.Icon("milestone") != "[M]" {
 		t.Errorf("expected fallback [M], got %s", stylesNoIcons.Icon("milestone"))
+	}
+	if stylesNoIcons.Icon("type_circle") != "* " {
+		t.Errorf("expected fallback '* ', got %s", stylesNoIcons.Icon("type_circle"))
 	}
 }
 
@@ -1093,5 +1101,212 @@ func TestViewHeightClamping(t *testing.T) {
 	linesTiny := strings.Split(vTiny, "\n")
 	if len(linesTiny) != 1 {
 		t.Errorf("expected 1 line on extreme small height, got %d", len(linesTiny))
+	}
+}
+
+func TestCard_CollapsibleRow3(t *testing.T) {
+	m, _, _ := setupTestModel()
+
+	// Card without milestone and without labels -> 4 lines outer (collapsed)
+	cleanItem := github.ProjectItem{
+		ID:     "item_clean",
+		Number: 101,
+		Title:  "Clean task with no metadata",
+	}
+	renderedClean := m.renderCard(cleanItem, false, 30)
+	linesClean := strings.Split(renderedClean, "\n")
+	if len(linesClean) != 4 {
+		t.Errorf("expected 4 lines for collapsed card, got %d: %q", len(linesClean), renderedClean)
+	}
+
+	// Card with milestone -> 5 lines outer (expanded)
+	milestoneItem := github.ProjectItem{
+		ID:        "item_ms",
+		Number:    102,
+		Title:     "Task with milestone",
+		Milestone: &github.Milestone{Title: "v1.0"},
+	}
+	renderedMS := m.renderCard(milestoneItem, false, 30)
+	linesMS := strings.Split(renderedMS, "\n")
+	if len(linesMS) != 5 {
+		t.Errorf("expected 5 lines for card with milestone, got %d: %q", len(linesMS), renderedMS)
+	}
+
+	// Card with labels -> 5 lines outer (expanded)
+	labeledItem := github.ProjectItem{
+		ID:     "item_label",
+		Number: 103,
+		Title:  "Task with label",
+		Labels: []github.Label{{Name: "bug", Color: "f7768e"}},
+	}
+	renderedLabeled := m.renderCard(labeledItem, false, 30)
+	linesLabeled := strings.Split(renderedLabeled, "\n")
+	if len(linesLabeled) != 5 {
+		t.Errorf("expected 5 lines for card with labels, got %d: %q", len(linesLabeled), renderedLabeled)
+	}
+}
+
+func TestCard_LabelColorResolution(t *testing.T) {
+	// Nil config safety
+	mNil := Model{styles: NewStyles("storm", true)}
+	testItem := github.ProjectItem{
+		Labels: []github.Label{{Name: "feature"}},
+	}
+	color := mNil.resolveLabelColor(testItem)
+	if color != string(mNil.styles.Palette.Comment) {
+		t.Errorf("expected fallback comment color on nil config, got %s", color)
+	}
+
+	// First match wins & case-insensitivity
+	cfg := config.DefaultConfig()
+	cfg.Theme.IssueTypeLabels = map[string]string{
+		"bug":     "#f7768e",
+		"feature": "#7aa2f7",
+		"task":    "#e0af68",
+	}
+	m := Model{cfg: cfg, styles: NewStyles("storm", true)}
+
+	multiItem := github.ProjectItem{
+		Labels: []github.Label{
+			{Name: "FEATURE"},
+			{Name: "bug"},
+		},
+	}
+	colorMulti := m.resolveLabelColor(multiItem)
+	if colorMulti != "#7aa2f7" {
+		t.Errorf("expected first match #7aa2f7 (feature), got %s", colorMulti)
+	}
+
+	// Fallback when unmatched
+	unmatchedItem := github.ProjectItem{
+		Labels: []github.Label{{Name: "documentation"}},
+	}
+	colorUnmatched := m.resolveLabelColor(unmatchedItem)
+	if colorUnmatched != string(m.styles.Palette.Comment) {
+		t.Errorf("expected fallback comment color for unmatched label, got %s", colorUnmatched)
+	}
+}
+
+func TestCard_DomainTypeIcons(t *testing.T) {
+	m, _, _ := setupTestModel()
+
+	prItem := github.ProjectItem{
+		ID:     "pr_1",
+		Number: 10,
+		Title:  "Fix memory leak",
+		Type:   "PULL_REQUEST",
+	}
+	renderedPR := m.renderCard(prItem, false, 40)
+	if !strings.Contains(renderedPR, m.styles.Icon("pr")) {
+		t.Errorf("expected PR card to contain PR icon %q, got: %q", m.styles.Icon("pr"), renderedPR)
+	}
+
+	draftItem := github.ProjectItem{
+		ID:    "draft_1",
+		Title: "Draft idea",
+		Type:  "DRAFT_ISSUE",
+	}
+	renderedDraft := m.renderCard(draftItem, false, 40)
+	if !strings.Contains(renderedDraft, m.styles.Icon("draft")) {
+		t.Errorf("expected Draft card to contain draft icon %q, got: %q", m.styles.Icon("draft"), renderedDraft)
+	}
+
+	issueItem := github.ProjectItem{
+		ID:     "issue_1",
+		Number: 20,
+		Title:  "Standard bug report",
+		Type:   "ISSUE",
+	}
+	renderedIssue := m.renderCard(issueItem, false, 40)
+	if !strings.Contains(renderedIssue, m.styles.Icon("issue")) {
+		t.Errorf("expected Issue card to contain issue icon %q, got: %q", m.styles.Icon("issue"), renderedIssue)
+	}
+}
+
+func TestCard_RowClamping(t *testing.T) {
+	m, _, _ := setupTestModel()
+
+	// Extremely long labels and title on a narrow card
+	overflowItem := github.ProjectItem{
+		ID:     "item_overflow",
+		Number: 999,
+		Title:  "This is a very very very long issue title that should be safely truncated without wrapping onto multiple lines",
+		Milestone: &github.Milestone{
+			Title: "Extremely long milestone title that exceeds column width easily",
+		},
+		Labels: []github.Label{
+			{Name: "label-alpha-one-very-long"},
+			{Name: "label-beta-two-also-long"},
+			{Name: "label-gamma-three-very-long"},
+		},
+		HoursSpent: 123.45,
+	}
+
+	// Narrow width: 20 columns
+	rendered := m.renderCard(overflowItem, false, 20)
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != 5 {
+		t.Errorf("expected strictly 5 lines for expanded card under narrow width, got %d: %q", len(lines), rendered)
+	}
+
+	// Even narrower width: 10 columns
+	renderedNarrow := m.renderCard(overflowItem, false, 10)
+	linesNarrow := strings.Split(renderedNarrow, "\n")
+	if len(linesNarrow) != 5 {
+		t.Errorf("expected strictly 5 lines under narrow width, got %d: %q", len(linesNarrow), renderedNarrow)
+	}
+}
+
+func TestModal_ThickBorderAlignment(t *testing.T) {
+	m, _, _ := setupTestModel()
+	m.viewMode = ViewModeInspector
+	m.board.Items[0].Title = "A very long issue title that tests whether modal top border is truncated properly"
+
+	rendered := m.renderInspectorModal(80, 24)
+
+	var modalLines []string
+	inModal := false
+	for _, line := range strings.Split(rendered, "\n") {
+		trimmed := strings.TrimSpace(ansi.Strip(line))
+		if strings.HasPrefix(trimmed, "┏") {
+			inModal = true
+		}
+		if inModal {
+			modalLines = append(modalLines, trimmed)
+			if strings.HasPrefix(trimmed, "┗") {
+				inModal = false
+			}
+		}
+	}
+
+	if len(modalLines) == 0 {
+		t.Fatal("expected modal box lines, found none")
+	}
+
+	wModal := max(16, min(80-2, int(float64(80)*0.85)))
+
+	// Check top border
+	top := modalLines[0]
+	if !strings.HasPrefix(top, "┏") || !strings.HasSuffix(top, "┓") {
+		t.Errorf("expected top line to start with ┏ and end with ┓, got %q", top)
+	}
+
+	// Check bottom border
+	bottom := modalLines[len(modalLines)-1]
+	if !strings.HasPrefix(bottom, "┗") || !strings.HasSuffix(bottom, "┛") {
+		t.Errorf("expected bottom line to start with ┗ and end with ┛, got %q", bottom)
+	}
+
+	// Check all modal lines have exact width wModal and consistent vertical borders
+	for i, line := range modalLines {
+		cellWidth := runewidth.StringWidth(line)
+		if cellWidth != wModal {
+			t.Errorf("line %d has width %d (expected %d): %q", i, cellWidth, wModal, line)
+		}
+		if i > 0 && i < len(modalLines)-1 {
+			if !strings.HasPrefix(line, "┃") || !strings.HasSuffix(line, "┃") {
+				t.Errorf("line %d expected vertical borders ┃...┃, got %q", i, line)
+			}
+		}
 	}
 }

@@ -30,8 +30,9 @@ type TimewarriorConfig struct {
 
 // ThemeConfig configures visual theming and iconography.
 type ThemeConfig struct {
-	TokyoNightVariant string `toml:"variant"`
-	ShowIcons         bool   `toml:"show_icons"`
+	TokyoNightVariant string            `toml:"variant"`
+	ShowIcons         bool              `toml:"show_icons"`
+	IssueTypeLabels   map[string]string `toml:"issue_type_labels"`
 }
 
 // DefaultConfig returns a configuration populated with production defaults.
@@ -49,6 +50,7 @@ func DefaultConfig() *Config {
 		Theme: ThemeConfig{
 			TokyoNightVariant: "storm",
 			ShowIcons:         true,
+			IssueTypeLabels:   make(map[string]string),
 		},
 	}
 }
@@ -125,6 +127,15 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.Theme.TokyoNightVariant == "" {
 		cfg.Theme.TokyoNightVariant = "storm"
+	}
+	if cfg.Theme.IssueTypeLabels != nil {
+		normalized := make(map[string]string, len(cfg.Theme.IssueTypeLabels))
+		for k, v := range cfg.Theme.IssueTypeLabels {
+			normalized[strings.ToLower(k)] = v
+		}
+		cfg.Theme.IssueTypeLabels = normalized
+	} else {
+		cfg.Theme.IssueTypeLabels = make(map[string]string)
 	}
 
 	return cfg, nil
