@@ -99,10 +99,12 @@ stateDiagram-v2
 - [`Styles`](file:///home/ejablonski/dev/gh-terrorizer/internal/tui/styles.go): Collection of Lip Gloss styles used across all workstation tiers and modal frames.
 - [`NewStyles(p TokyoNightPalette) Styles`](file:///home/ejablonski/dev/gh-terrorizer/internal/tui/styles.go): Initializes styling tokens.
 - [`(*Styles) Icon(iconName string) string`](file:///home/ejablonski/dev/gh-terrorizer/internal/tui/styles.go): Resolves Nerd Font glyphs with ASCII fallbacks.
+- [`renderBorderedFrameWithTitle(title string, outerWidth int, frameStyle lipgloss.Style, content string) string`](file:///home/ejablonski/dev/gh-terrorizer/internal/tui/render.go): Encapsulated frame helper dynamically deriving inner box dimensions, colors, and border glyphs from `frameStyle` to inject top titles while guaranteeing flush rectangular box alignment ($w_{\text{line}} = \text{outerWidth}$).
 
 ## Invariants
 
 - Total rendered view height strictly equals terminal height $H$ by budgeting $h_{\text{main}} = H - \text{lipgloss.Height}(\text{topBar}) - \text{lipgloss.Height}(\text{bottomBar})$, preventing vertical scrolling or bottom border truncation.
+- Modal dialogs and bordered containers with top titles maintain strict rectangular geometry ($w_{\text{line}} = \text{outerWidth}$) across all lines, with dynamic border glyph extraction and color derivation preventing corner misalignment.
 - Cards maintain deterministic outer heights $h_{\text{outer}} \in \{4, 5\}$ lines: collapsed cards without milestone/labels occupy $4$ lines, and cards with metadata occupy $5$ lines with zero inter-card margins.
 - All card rows are strictly clamped to $w_{\text{inner}} = \text{width} - 4$ with ANSI-safe truncation, preventing line wrapping and preserving column card count budgets.
 - Opening and closing the Issue Inspector Modal preserves exact column and card cursor coordinates (`m.activeColumn`, `m.activeCard`).

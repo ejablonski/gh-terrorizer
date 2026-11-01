@@ -124,6 +124,68 @@ func (m Model) renderBottomBar(width int) string {
 	return hintsStyled + strings.Repeat(" ", gap) + toast
 }
 
+// renderBorderedFrameWithTitle renders content inside a bordered container with an exact
+// outerWidth, dynamically deriving inner box and padding dimensions from frameStyle and
+// seamlessly injecting a title into the top border while guaranteeing flush vertical corners.
+func renderBorderedFrameWithTitle(title string, outerWidth int, frameStyle lipgloss.Style, content string) string {
+	horizBorder := frameStyle.GetHorizontalBorderSize()
+	innerBoxWidth := max(0, outerWidth-horizBorder)
+
+	box := frameStyle.Width(innerBoxWidth).Render(content)
+	lines := strings.Split(box, "\n")
+	if len(lines) == 0 || title == "" {
+		return box
+	}
+
+	borderDef, hasTop, _, _, _ := frameStyle.GetBorder()
+	if !hasTop {
+		return box
+	}
+
+	cornerLeft := borderDef.TopLeft
+	cornerRight := borderDef.TopRight
+	dash := borderDef.Top
+
+	wPrefix := runewidth.StringWidth(cornerLeft) + runewidth.StringWidth(dash) + 1
+	wSuffixMin := 1 + runewidth.StringWidth(dash) + runewidth.StringWidth(cornerRight)
+	maxTitleWidth := outerWidth - (wPrefix + wSuffixMin)
+	if maxTitleWidth < 3 {
+		return box
+	}
+
+	truncTitle := runewidth.Truncate(title, maxTitleWidth, "...")
+	titleWidth := runewidth.StringWidth(truncTitle)
+	wDash := max(1, runewidth.StringWidth(dash))
+	dashSpace := outerWidth - wPrefix - titleWidth - 1 - runewidth.StringWidth(cornerRight)
+	remainingDashes := max(1, dashSpace/wDash)
+	filler := strings.Repeat(dash, remainingDashes)
+	if rem := dashSpace % wDash; rem > 0 {
+		filler += strings.Repeat(" ", rem)
+	}
+
+	topBorder := cornerLeft + dash + " " + truncTitle + " " + filler + cornerRight
+	borderFg := frameStyle.GetBorderTopForeground()
+	if borderFg == nil || borderFg == (lipgloss.NoColor{}) {
+		borderFg = frameStyle.GetForeground()
+	}
+	borderBg := frameStyle.GetBorderTopBackground()
+	if borderBg == nil || borderBg == (lipgloss.NoColor{}) {
+		borderBg = frameStyle.GetBackground()
+	}
+
+	borderStyle := lipgloss.NewStyle()
+	if borderFg != nil && borderFg != (lipgloss.NoColor{}) {
+		borderStyle = borderStyle.Foreground(borderFg)
+	}
+	if borderBg != nil && borderBg != (lipgloss.NoColor{}) {
+		borderStyle = borderStyle.Background(borderBg)
+	}
+
+	lines[0] = borderStyle.Render(topBorder)
+
+	return strings.Join(lines, "\n")
+}
+
 // renderInspectorModal renders the centered Issue Inspector Modal with metadata and embedded viewport.
 func (m Model) renderInspectorModal(width, height int) string {
 	item := m.SelectedItem()
@@ -138,9 +200,6 @@ func (m Model) renderInspectorModal(width, height int) string {
 
 	m.inspectorViewport.Width = wViewport
 	m.inspectorViewport.Height = hViewport
-
-	availWidth := max(0, wModal-6)
-	headerTitle := runewidth.Truncate(fmt.Sprintf("#%d %s", item.Number, item.Title), availWidth, "...")
 
 	// Metadata strip
 	var stateBadge string
@@ -180,17 +239,12 @@ func (m Model) renderInspectorModal(width, height int) string {
 	// Combine inner lines
 	content := lipgloss.JoinVertical(lipgloss.Left, metaStrip, divider, viewportView, footer)
 
-	// Apply ModalFrame with width wModal - 2 so outer border box strictly equals wModal
-	modalBox := m.styles.ModalFrame.Width(wModal - 2).Render(content)
-
-	// Inject title into top border line if space permits
-	lines := strings.Split(modalBox, "\n")
-	if len(lines) > 0 && availWidth >= 6 && headerTitle != "" {
-		remainingDashes := max(1, wModal-runewidth.StringWidth(headerTitle)-5)
-		topBorder := "┏━ " + headerTitle + " " + strings.Repeat("━", remainingDashes) + "┓"
-		lines[0] = lipgloss.NewStyle().Foreground(m.styles.Palette.Blue).Render(topBorder)
-		modalBox = strings.Join(lines, "\n")
+	// Apply ModalFrame with encapsulated title injection
+	rawTitle := fmt.Sprintf("#%d %s", item.Number, item.Title)
+	if item.Number == 0 {
+		rawTitle = item.Title
 	}
+	modalBox := renderBorderedFrameWithTitle(rawTitle, wModal, m.styles.ModalFrame, content)
 
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, modalBox)
 }

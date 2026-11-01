@@ -1310,3 +1310,125 @@ func TestModal_ThickBorderAlignment(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderBorderedFrameWithTitle(t *testing.T) {
+	styles := NewStyles("tokyonight", false)
+
+	testCases := []struct {
+		name       string
+		outerWidth int
+		title      string
+		style      lipgloss.Style
+		content    string
+	}{
+		{
+			name:       "ThickBorder standard width",
+			outerWidth: 68,
+			title:      "Issue #101: Test Feature",
+			style:      styles.ModalFrame,
+			content:    "Modal line 1\nModal line 2",
+		},
+		{
+			name:       "ThickBorder narrow width",
+			outerWidth: 20,
+			title:      "Very long title exceeding width limit",
+			style:      styles.ModalFrame,
+			content:    "Narrow content",
+		},
+		{
+			name:       "ThickBorder wide width",
+			outerWidth: 120,
+			title:      "Full screen modal frame with title",
+			style:      styles.ModalFrame,
+			content:    "Line A\nLine B\nLine C",
+		},
+		{
+			name:       "ThickBorder empty title",
+			outerWidth: 50,
+			title:      "",
+			style:      styles.ModalFrame,
+			content:    "Content without title",
+		},
+		{
+			name:       "RoundedBorder with extra padding",
+			outerWidth: 40,
+			title:      "Rounded Frame",
+			style: lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#7aa2f7")).
+				Background(lipgloss.Color("#1a1b26")).
+				Padding(0, 2),
+			content: "Padded content",
+		},
+		{
+			name:       "Unicode wide characters in title",
+			outerWidth: 45,
+			title:      "日本語タイトル 🔥 漢字",
+			style:      styles.ModalFrame,
+			content:    "CJK title testing",
+		},
+		{
+			name:       "No top border gracefully preserves box",
+			outerWidth: 35,
+			title:      "Should not be drawn",
+			style: lipgloss.NewStyle().
+				Border(lipgloss.Border{
+					Left:   "│",
+					Right:  "│",
+					Bottom: "─",
+				}, false, true, true, true),
+			content: "Content with bottom and sides only",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rendered := renderBorderedFrameWithTitle(tc.title, tc.outerWidth, tc.style, tc.content)
+			lines := strings.Split(rendered, "\n")
+			if len(lines) == 0 {
+				t.Fatalf("expected rendered lines, got 0")
+			}
+
+			borderDef, hasTop, _, _, _ := tc.style.GetBorder()
+
+			for i, line := range lines {
+				stripped := ansi.Strip(line)
+				w := runewidth.StringWidth(stripped)
+				if w != tc.outerWidth {
+					t.Errorf("line %d: expected width %d, got %d (line: %q)", i, tc.outerWidth, w, stripped)
+				}
+
+				if i == 0 {
+					if hasTop {
+						if !strings.HasPrefix(stripped, borderDef.TopLeft) {
+							t.Errorf("line 0: expected prefix %q, got %q", borderDef.TopLeft, stripped)
+						}
+						if !strings.HasSuffix(stripped, borderDef.TopRight) {
+							t.Errorf("line 0: expected suffix %q, got %q", borderDef.TopRight, stripped)
+						}
+						if tc.title != "" && tc.outerWidth >= 25 {
+							// Check that title or part of title is rendered
+							if !strings.Contains(stripped, "...") && !strings.Contains(stripped, tc.title[:min(len(tc.title), 5)]) {
+								t.Errorf("line 0: expected title in top border, got %q", stripped)
+							}
+						}
+					}
+				} else if i == len(lines)-1 {
+					if borderDef.BottomLeft != "" && !strings.HasPrefix(stripped, borderDef.BottomLeft) {
+						t.Errorf("bottom line: expected prefix %q, got %q", borderDef.BottomLeft, stripped)
+					}
+					if borderDef.BottomRight != "" && !strings.HasSuffix(stripped, borderDef.BottomRight) {
+						t.Errorf("bottom line: expected suffix %q, got %q", borderDef.BottomRight, stripped)
+					}
+				} else {
+					if borderDef.Left != "" && !strings.HasPrefix(stripped, borderDef.Left) {
+						t.Errorf("line %d: expected left border %q, got %q", i, borderDef.Left, stripped)
+					}
+					if borderDef.Right != "" && !strings.HasSuffix(stripped, borderDef.Right) {
+						t.Errorf("line %d: expected right border %q, got %q", i, borderDef.Right, stripped)
+					}
+				}
+			}
+		})
+	}
+}
