@@ -566,8 +566,14 @@ func (m Model) renderCard(item github.ProjectItem, isFocused bool, width int) st
 		}
 	}
 
-	// Row 1: Left circle indicator + Right hours badge
-	left := lipgloss.NewStyle().Foreground(lipgloss.Color(m.resolveLabelColor(item))).Render(m.styles.Icon("type_circle"))
+	// Row 1: Left item type indicator + Right hours badge
+	typeIcon := m.styles.Icon("issue")
+	if item.Type == "PULL_REQUEST" {
+		typeIcon = m.styles.Icon("pr")
+	} else if item.Type == "DRAFT_ISSUE" {
+		typeIcon = m.styles.Icon("draft")
+	}
+	left := lipgloss.NewStyle().Foreground(lipgloss.Color(m.resolveLabelColor(item))).Render(typeIcon)
 
 	var right string
 	hoursStr := timew.FormatHours(item.HoursSpent)
@@ -588,29 +594,21 @@ func (m Model) renderCard(item github.ProjectItem, isFocused bool, width int) st
 		row1 = ansi.Truncate(row1, wInner, "")
 	}
 
-	// Row 2: Type glyph + #Num + Title
-	typeIcon := m.styles.Icon("issue")
-	if item.Type == "PULL_REQUEST" {
-		typeIcon = m.styles.Icon("pr")
-	} else if item.Type == "DRAFT_ISSUE" {
-		typeIcon = m.styles.Icon("draft")
+	// Row 2: #Num + Title
+	var row2 string
+	if item.Number > 0 {
+		prefix := fmt.Sprintf("#%d", item.Number)
+		renderedPrefix := m.styles.CardNumber.Render(prefix)
+		wPrefix := lipgloss.Width(renderedPrefix)
+		var truncTitle string
+		if wInner > wPrefix {
+			truncTitle = runewidth.Truncate(item.Title, wInner-wPrefix, "...")
+		}
+		row2 = renderedPrefix + m.styles.CardTitle.Render(truncTitle)
+	} else {
+		truncTitle := runewidth.Truncate(item.Title, wInner, "...")
+		row2 = m.styles.CardTitle.Render(truncTitle)
 	}
-
-	prefix := fmt.Sprintf("%s#%d", typeIcon, item.Number)
-	if typeIcon == "#" {
-		prefix = fmt.Sprintf("#%d", item.Number)
-	}
-	if item.Number == 0 {
-		prefix = typeIcon
-	}
-
-	wPrefix := lipgloss.Width(m.styles.CardNumber.Render(prefix))
-	var truncTitle string
-	if wInner > wPrefix {
-		wAvail := wInner - wPrefix
-		truncTitle = runewidth.Truncate(item.Title, wAvail, "...")
-	}
-	row2 := m.styles.CardNumber.Render(prefix) + m.styles.CardTitle.Render(truncTitle)
 	if lipgloss.Width(row2) > wInner {
 		row2 = ansi.Truncate(row2, wInner, "")
 	}

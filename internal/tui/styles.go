@@ -293,8 +293,6 @@ func (s *Styles) Icon(iconName string) string {
 			return "[TIMER]"
 		case "milestone":
 			return "[M]"
-		case "type_circle":
-			return "* "
 		case "issue":
 			return "#"
 		case "pr":
@@ -313,8 +311,6 @@ func (s *Styles) Icon(iconName string) string {
 		return "󱎫 "
 	case "milestone":
 		return " "
-	case "type_circle":
-		return "● "
 	case "issue":
 		return " "
 	case "pr":

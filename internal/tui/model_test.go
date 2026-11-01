@@ -496,8 +496,8 @@ func TestStyles_Icons(t *testing.T) {
 	if stylesWithIcons.Icon("milestone") != " " {
 		t.Errorf("unexpected milestone icon: %s", stylesWithIcons.Icon("milestone"))
 	}
-	if stylesWithIcons.Icon("type_circle") != "● " {
-		t.Errorf("unexpected type_circle icon: %s", stylesWithIcons.Icon("type_circle"))
+	if stylesWithIcons.Icon("issue") != " " {
+		t.Errorf("unexpected issue icon: %s", stylesWithIcons.Icon("issue"))
 	}
 
 	stylesNoIcons := NewStyles("night", false)
@@ -507,8 +507,8 @@ func TestStyles_Icons(t *testing.T) {
 	if stylesNoIcons.Icon("milestone") != "[M]" {
 		t.Errorf("expected fallback [M], got %s", stylesNoIcons.Icon("milestone"))
 	}
-	if stylesNoIcons.Icon("type_circle") != "* " {
-		t.Errorf("expected fallback '* ', got %s", stylesNoIcons.Icon("type_circle"))
+	if stylesNoIcons.Icon("issue") != "#" {
+		t.Errorf("expected fallback '#', got %s", stylesNoIcons.Icon("issue"))
 	}
 }
 
@@ -1197,8 +1197,12 @@ func TestCard_DomainTypeIcons(t *testing.T) {
 		Type:   "PULL_REQUEST",
 	}
 	renderedPR := m.renderCard(prItem, false, 40)
-	if !strings.Contains(renderedPR, m.styles.Icon("pr")) {
-		t.Errorf("expected PR card to contain PR icon %q, got: %q", m.styles.Icon("pr"), renderedPR)
+	prLines := strings.Split(renderedPR, "\n")
+	if !strings.Contains(prLines[1], m.styles.Icon("pr")) {
+		t.Errorf("expected PR top row to contain PR icon %q, got: %q", m.styles.Icon("pr"), prLines[1])
+	}
+	if strings.Contains(prLines[2], m.styles.Icon("pr")) {
+		t.Errorf("expected PR title row not to contain PR icon, got: %q", prLines[2])
 	}
 
 	draftItem := github.ProjectItem{
@@ -1207,8 +1211,12 @@ func TestCard_DomainTypeIcons(t *testing.T) {
 		Type:  "DRAFT_ISSUE",
 	}
 	renderedDraft := m.renderCard(draftItem, false, 40)
-	if !strings.Contains(renderedDraft, m.styles.Icon("draft")) {
-		t.Errorf("expected Draft card to contain draft icon %q, got: %q", m.styles.Icon("draft"), renderedDraft)
+	draftLines := strings.Split(renderedDraft, "\n")
+	if !strings.Contains(draftLines[1], m.styles.Icon("draft")) {
+		t.Errorf("expected Draft top row to contain draft icon %q, got: %q", m.styles.Icon("draft"), draftLines[1])
+	}
+	if strings.Contains(draftLines[2], m.styles.Icon("draft")) {
+		t.Errorf("expected Draft title row not to contain draft icon, got: %q", draftLines[2])
 	}
 
 	issueItem := github.ProjectItem{
@@ -1218,8 +1226,15 @@ func TestCard_DomainTypeIcons(t *testing.T) {
 		Type:   "ISSUE",
 	}
 	renderedIssue := m.renderCard(issueItem, false, 40)
-	if !strings.Contains(renderedIssue, m.styles.Icon("issue")) {
-		t.Errorf("expected Issue card to contain issue icon %q, got: %q", m.styles.Icon("issue"), renderedIssue)
+	issueLines := strings.Split(renderedIssue, "\n")
+	if !strings.Contains(issueLines[1], m.styles.Icon("issue")) {
+		t.Errorf("expected Issue top row to contain issue icon %q, got: %q", m.styles.Icon("issue"), issueLines[1])
+	}
+	if strings.Contains(issueLines[2], m.styles.Icon("issue")) {
+		t.Errorf("expected Issue title row not to contain issue icon, got: %q", issueLines[2])
+	}
+	if strings.Contains(renderedIssue, "●") {
+		t.Errorf("expected dot icon '●' to be removed from card, got: %q", renderedIssue)
 	}
 }
 
